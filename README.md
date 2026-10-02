@@ -4,7 +4,7 @@ Adds a **Sign in to Wi-Fi** action to Caelestia's network flyout when NetworkMan
 
 ## Behaviour
 
-- Checks `nmcli networking connectivity check` while the network flyout is mounted.
+- Uses an unprivileged HTTP 204 probe while the network flyout is mounted, with cached NetworkManager connectivity as a fallback.
 - Shows the action for `portal` connectivity.
 - By default also shows it for `limited`, because some captive networks are reported that way.
 - Opens a plain HTTP endpoint so the captive network can redirect the browser to its login/accept-terms page.
