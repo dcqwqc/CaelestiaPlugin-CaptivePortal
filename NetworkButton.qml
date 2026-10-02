@@ -91,7 +91,7 @@ StyledRect {
         command: ["sh", "-c",
             "if command -v curl >/dev/null 2>&1; then " +
             "code=$(curl -sS --connect-timeout 2 --max-time 4 -o /dev/null -w '%{http_code}' http://connectivitycheck.gstatic.com/generate_204 2>/dev/null || true); " +
-            "case "$code" in 204) printf full;; 000|'') nmcli networking connectivity 2>/dev/null || printf unknown;; *) printf portal;; esac; " +
+            "case $code in 204) printf full;; 000|'') nmcli networking connectivity 2>/dev/null || printf unknown;; *) printf portal;; esac; " +
             "else nmcli networking connectivity 2>/dev/null || printf unknown; fi"]
 
         stdout: StdioCollector {
