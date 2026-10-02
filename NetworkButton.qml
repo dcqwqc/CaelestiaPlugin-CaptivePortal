@@ -73,7 +73,6 @@ StyledRect {
             Layout.topMargin: -Math.round(signInIcon.fontInfo.pointSize * 0.0575)
             text: qsTr("Sign in to Wi-Fi")
             color: Colours.palette.m3onPrimaryContainer
-            font: Tokens.font.body.builders.medium.weight(Font.Medium).build()
         }
 
         MaterialIcon {
