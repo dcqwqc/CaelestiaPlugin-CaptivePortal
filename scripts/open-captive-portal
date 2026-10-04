@@ -1,0 +1,82 @@
+#!/usr/bin/env sh
+set -u
+
+print_only=0
+if [ "${1:-}" = "--print" ]; then
+    print_only=1
+    shift
+fi
+
+candidate="${1:-}"
+generic_http='http://example.com/'
+
+dev="$(
+    nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null |
+        awk -F: '$2=="wifi" && $3=="connected" {print $1; exit}'
+)"
+
+[ -n "$dev" ] || exit 0
+
+is_probe_url() {
+    case "$1" in
+        ""|http://ping.archlinux.org/*|https://ping.archlinux.org/*|        http://connectivitycheck.gstatic.com/*|https://connectivitycheck.gstatic.com/*|        http://www.msftconnecttest.com/*|https://www.msftconnecttest.com/*|        http://example.com/*|https://example.com/*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+discover_redirect() {
+    headers="$(mktemp)"
+    body="$(mktemp)"
+
+    code="$(
+        curl --noproxy '*' --interface "$dev" -sS             --connect-timeout 2 --max-time 5             -D "$headers" -o "$body" -w '%{http_code}' "$generic_http"             2>/dev/null || true
+    )"
+
+    loc="$(
+        sed -n 's/^[Ll]ocation:[[:space:]]*//p' "$headers" |
+            tr -d '
+' |
+            head -n1
+    )"
+
+    if [ -z "$loc" ] && [ "$code" = 200 ]; then
+        loc="$(
+            grep -Eio 'https?://[^"'"'"'<>[:space:]]+' "$body" 2>/dev/null |
+                grep -Ev '^https?://(www.)?example.com(/|$)' |
+                head -n1 || true
+        )"
+    fi
+
+    rm -f "$headers" "$body"
+
+    case "$loc" in
+        http://*|https://*)
+            printf '%s
+' "$loc"
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
+target="$candidate"
+
+if is_probe_url "$target"; then
+    target="$(discover_redirect || true)"
+fi
+
+if [ -z "$target" ]; then
+    target="$generic_http"
+fi
+
+if [ "$print_only" -eq 1 ]; then
+    printf '%s
+' "$target"
+else
+    xdg-open "$target" >/dev/null 2>&1 &
+fi

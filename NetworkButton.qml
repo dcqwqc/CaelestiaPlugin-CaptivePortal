@@ -18,6 +18,8 @@ StyledRect {
     property string portalUrl: ""
     property bool wifiConnected: false
 
+    readonly property string portalOpener: `${Quickshell.env("HOME")}/.local/share/caelestia/plugins/captive-portal/scripts/open-captive-portal`
+
     readonly property bool mounted: width > 1
     readonly property bool showWhenLimited: settings ? settings.showWhenLimited : false
     readonly property bool alwaysShow: settings ? settings.alwaysShow : false
@@ -51,11 +53,13 @@ StyledRect {
         if (!wifiConnected)
             return;
 
-        const target = portalUrl.length > 0
-            ? portalUrl
-            : "http://example.com/";
+        const target = portalUrl.length > 0 ? portalUrl : "";
 
-        Quickshell.execDetached(["xdg-open", target]);
+        // Re-resolve the portal at click time. Some public Wi-Fi networks
+        // initially return a connectivity-check URL and only expose the real
+        // splash-page redirect a moment later. The helper avoids showing that
+        // blank intermediate page in the browser.
+        Quickshell.execDetached([root.portalOpener, target]);
         checkDelay.restart();
     }
 
