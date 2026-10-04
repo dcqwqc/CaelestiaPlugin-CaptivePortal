@@ -53,7 +53,7 @@ StyledRect {
 
         const target = portalUrl.length > 0
             ? portalUrl
-            : "http://ping.archlinux.org/nm-check.txt";
+            : "http://example.com/";
 
         Quickshell.execDetached(["xdg-open", target]);
         checkDelay.restart();

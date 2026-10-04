@@ -3,6 +3,10 @@ set -u
 
 nm_probe='http://ping.archlinux.org/nm-check.txt'
 google_probe='http://connectivitycheck.gstatic.com/generate_204'
+ms_probe='http://www.msftconnecttest.com/connecttest.txt'
+generic_http='http://example.com/'
+https_probe_1='https://www.cloudflare.com/cdn-cgi/trace'
+https_probe_2='https://example.com/'
 
 dev="$(
     nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null |
@@ -20,23 +24,86 @@ if [ -z "$before" ] || [ "$before" = '--' ]; then
     exit 0
 fi
 
-probe() {
+still_connected() {
+    after="$(nmcli -g GENERAL.CONNECTION device show "$dev" 2>/dev/null | head -n1)"
+    [ -n "$after" ] && [ "$after" = "$before" ]
+}
+
+emit_portal() {
+    target="$1"
+    still_connected || {
+        printf 'none\t\n'
+        exit 0
+    }
+    printf 'portal\t%s\n' "$target"
+    exit 0
+}
+
+# Prefer RFC 8910 / RFC 8908 information if the Wi-Fi advertises it through
+# DHCP and NetworkManager exposes the option.
+dhcp_dump="$(
+    nmcli -f DHCP4.OPTION,DHCP6.OPTION device show "$dev" 2>/dev/null || true
+)"
+advertised="$(
+    printf '%s\n' "$dhcp_dump" |
+        grep -Ei 'captive|(^|[[:space:]_.-])(114|103)([[:space:]_.=-]|$)' |
+        grep -Eo 'https?://[^[:space:]]+' |
+        sed 's/[",;)]*$//' |
+        head -n1
+)"
+
+if [ -n "$advertised" ]; then
+    cap_body="$(mktemp)"
+    cap_code="$(
+        curl --noproxy '*' --interface "$dev" -sS \
+            --connect-timeout 2 --max-time 5 \
+            -o "$cap_body" -w '%{http_code}' "$advertised" 2>/dev/null || true
+    )"
+
+    if still_connected && [ "$cap_code" = 200 ]; then
+        captive="$(
+            grep -Eo '"captive"[[:space:]]*:[[:space:]]*(true|false)' "$cap_body" |
+                head -n1 |
+                grep -Eo '(true|false)$' || true
+        )"
+        user_portal="$(
+            grep -Eo '"user-portal-url"[[:space:]]*:[[:space:]]*"[^"]+"' "$cap_body" |
+                head -n1 |
+                sed -E 's/^.*"([^"]+)"$/\1/' || true
+        )"
+        rm -f "$cap_body"
+
+        if [ "$captive" = true ]; then
+            case "$user_portal" in
+                http://*|https://*) emit_portal "$user_portal" ;;
+                *) emit_portal "$advertised" ;;
+            esac
+        fi
+    else
+        rm -f "$cap_body"
+    fi
+fi
+
+# A standard connectivity endpoint can prove a portal, but it cannot prove
+# unrestricted Internet. Public Wi-Fi commonly whitelists these endpoints.
+probe_standard() {
     url="$1"
     expected="$2"
     mode="$3"
 
     headers="$(mktemp)"
     body="$(mktemp)"
-
     code="$(
-        curl --noproxy '*' --interface "$dev"             -sS --connect-timeout 2 --max-time 5             -D "$headers" -o "$body" -w '%{http_code}' "$url"             2>/dev/null || true
+        curl --noproxy '*' --interface "$dev" -sS \
+            --connect-timeout 2 --max-time 5 \
+            -D "$headers" -o "$body" -w '%{http_code}' "$url" \
+            2>/dev/null || true
     )"
 
-    after="$(nmcli -g GENERAL.CONNECTION device show "$dev" 2>/dev/null | head -n1)"
-    if [ -z "$after" ] || [ "$before" != "$after" ]; then
+    if ! still_connected; then
         rm -f "$headers" "$body"
-        printf 'none\t\n'
-        return 10
+        printf 'disconnected'
+        return
     fi
 
     loc="$(
@@ -48,71 +115,147 @@ probe() {
     case "$code" in
         301|302|303|307|308|511)
             case "$loc" in
-                http://*|https://*) target="$loc" ;;
-                *) target="$url" ;;
+                http://*|https://*) printf 'portal\t%s' "$loc" ;;
+                *) printf 'portal\t%s' "$url" ;;
             esac
-            rm -f "$headers" "$body"
-            printf 'portal\t%s\n' "$target"
-            return 0
             ;;
         200)
             if [ "$mode" = body ] && [ "$(cat "$body")" = "$expected" ]; then
-                rm -f "$headers" "$body"
-                printf 'full\t\n'
-                return 0
-            fi
-
-            if [ "$mode" = code204 ]; then
-                size="$(wc -c <"$body")"
-                if [ "$size" -gt 0 ]; then
-                    rm -f "$headers" "$body"
-                    printf 'portal\t%s\n' "$url"
-                    return 0
-                fi
+                printf 'ok'
+            elif [ "$mode" = contains ] && grep -Fq "$expected" "$body"; then
+                printf 'ok'
             else
-                rm -f "$headers" "$body"
-                printf 'portal\t%s\n' "$url"
-                return 0
+                printf 'portal\t%s' "$url"
             fi
             ;;
         204)
             if [ "$mode" = code204 ]; then
-                rm -f "$headers" "$body"
-                printf 'full\t\n'
-                return 0
+                printf 'ok'
+            else
+                printf 'unknown'
             fi
+            ;;
+        *)
+            printf 'unknown'
             ;;
     esac
 
     rm -f "$headers" "$body"
-    return 1
 }
 
-result="$(probe "$nm_probe" 'NetworkManager is online' body)"
-rc=$?
-if [ "$rc" -eq 10 ]; then
-    printf '%s' "$result"
-    exit 0
-fi
-if [ "$rc" -eq 0 ]; then
-    printf '%s' "$result"
+standard_ok=0
+
+result="$(probe_standard "$nm_probe" 'NetworkManager is online' body)"
+case "$result" in
+    disconnected) printf 'none\t\n'; exit 0 ;;
+    portal*) printf '%s\n' "$result"; exit 0 ;;
+    ok) standard_ok=$((standard_ok + 1)) ;;
+esac
+
+result="$(probe_standard "$google_probe" '' code204)"
+case "$result" in
+    disconnected) printf 'none\t\n'; exit 0 ;;
+    portal*) printf '%s\n' "$result"; exit 0 ;;
+    ok) standard_ok=$((standard_ok + 1)) ;;
+esac
+
+result="$(probe_standard "$ms_probe" 'Microsoft Connect Test' body)"
+case "$result" in
+    disconnected) printf 'none\t\n'; exit 0 ;;
+    portal*) printf '%s\n' "$result"; exit 0 ;;
+    ok) standard_ok=$((standard_ok + 1)) ;;
+esac
+
+# "Full" now requires a genuine TLS connection to an ordinary public site.
+https_ok=0
+for url in "$https_probe_1" "$https_probe_2"; do
+    code="$(
+        curl --noproxy '*' --interface "$dev" -sS \
+            --connect-timeout 2 --max-time 6 \
+            -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true
+    )"
+
+    still_connected || {
+        printf 'none\t\n'
+        exit 0
+    }
+
+    case "$code" in
+        2??|3??)
+            https_ok=1
+            break
+            ;;
+    esac
+done
+
+if [ "$https_ok" -eq 1 ]; then
+    printf 'full\t\n'
     exit 0
 fi
 
-result="$(probe "$google_probe" '' code204)"
-rc=$?
-if [ "$rc" -eq 10 ]; then
-    printf '%s' "$result"
+# TLS is blocked. Probe ordinary HTTP: captive networks typically redirect it
+# or replace the body with their login page.
+headers="$(mktemp)"
+body="$(mktemp)"
+code="$(
+    curl --noproxy '*' --interface "$dev" -sS \
+        --connect-timeout 2 --max-time 6 \
+        -D "$headers" -o "$body" -w '%{http_code}' "$generic_http" \
+        2>/dev/null || true
+)"
+
+still_connected || {
+    rm -f "$headers" "$body"
+    printf 'none\t\n'
     exit 0
-fi
-if [ "$rc" -eq 0 ]; then
-    printf '%s' "$result"
-    exit 0
-fi
+}
+
+loc="$(
+    sed -n 's/^[Ll]ocation:[[:space:]]*//p' "$headers" |
+        tr -d '\r' |
+        head -n1
+)"
+
+case "$code" in
+    301|302|303|307|308|511)
+        case "$loc" in
+            http://example.com/*|https://example.com/*)
+                ;;
+            http://*|https://*)
+                rm -f "$headers" "$body"
+                emit_portal "$loc"
+                ;;
+            *)
+                rm -f "$headers" "$body"
+                emit_portal "$generic_http"
+                ;;
+        esac
+        ;;
+    200)
+        if ! grep -Fqi 'Example Domain' "$body"; then
+            rm -f "$headers" "$body"
+            emit_portal "$generic_http"
+        fi
+        ;;
+esac
+
+rm -f "$headers" "$body"
 
 cached="$(nmcli networking connectivity 2>/dev/null | tr '[:upper:]' '[:lower:]')"
 case "$cached" in
-    portal) printf 'portal\t%s\n' "$nm_probe" ;;
+    portal)
+        emit_portal "$generic_http"
+        ;;
+esac
+
+# Critical case for train/hotel Wi-Fi: connectivity-check hosts are reachable
+# but normal TLS is not. Treat that as a walled garden even if NetworkManager
+# says "full" because its own probe URL was whitelisted.
+if [ "$standard_ok" -gt 0 ]; then
+    emit_portal "$generic_http"
+fi
+
+case "$cached" in
     limited) printf 'limited\t\n' ;;
     *) printf 'offline\t\n' ;;
 esac
