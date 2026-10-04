@@ -1,21 +1,24 @@
 # CaelestiaPlugin-CaptivePortal
 
-Adds a **Sign in to Wi-Fi** action to Caelestia's network flyout when NetworkManager reports a captive portal or limited Wi-Fi connection.
+Adds a **Sign in to Wi-Fi** action to Caelestia's network flyout only when a connected Wi-Fi interface looks like it is behind a captive portal.
 
 ## Behaviour
 
-- Uses an unprivileged HTTP 204 probe while the network flyout is mounted, with cached NetworkManager connectivity as a fallback.
-- Shows the action for `portal` connectivity.
-- By default also shows it for `limited`, because some captive networks are reported that way.
-- Opens a plain HTTP endpoint so the captive network can redirect the browser to its login/accept-terms page.
-- Includes plugin settings for limited-connectivity visibility, always-visible mode, and probe interval.
+- Verifies that a real Wi-Fi device is connected before showing anything.
+- Binds connectivity probes to that Wi-Fi interface so Tailscale/other interfaces cannot create false state.
+- Checks NetworkManager's Arch Linux probe endpoint and a 204 endpoint.
+- Treats HTTP redirects, HTTP 511, or replaced connectivity-check content as a captive portal.
+- Stores and opens the portal's actual HTTP Location when the network provides one.
+- If a portal injects login HTML instead of redirecting, opens the original plain-HTTP connectivity URL so the network can intercept it again.
+- Treats DNS failures/timeouts as offline/unknown, not as a captive portal.
+- Revalidates the active connection after every probe so stale results do not survive SSID changes/disconnects.
+- Limited-connectivity fallback visibility is disabled by default to prevent phantom sign-in buttons.
+- Never uses NeverSSL as the login destination.
 
 ## Install
 
-```bash
-git clone https://github.com/dcqwqc/CaelestiaPlugin-CaptivePortal.git
-cd CaelestiaPlugin-CaptivePortal
-./install.sh
-```
+    git clone https://github.com/dcqwqc/CaelestiaPlugin-CaptivePortal.git
+    cd CaelestiaPlugin-CaptivePortal
+    ./install.sh
 
-The companion Caelestia shell integration consumes the plugin entry point with slot `networkPortal` inside `modules/bar/popouts/Network.qml`.
+The companion Caelestia shell integration consumes the plugin entry point with slot networkPortal inside modules/bar/popouts/Network.qml.

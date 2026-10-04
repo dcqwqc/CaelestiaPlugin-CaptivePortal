@@ -1,0 +1,118 @@
+#!/usr/bin/env sh
+set -u
+
+nm_probe='http://ping.archlinux.org/nm-check.txt'
+google_probe='http://connectivitycheck.gstatic.com/generate_204'
+
+dev="$(
+    nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null |
+        awk -F: '$2=="wifi" && $3=="connected" {print $1; exit}'
+)"
+
+if [ -z "$dev" ]; then
+    printf 'none\t\n'
+    exit 0
+fi
+
+before="$(nmcli -g GENERAL.CONNECTION device show "$dev" 2>/dev/null | head -n1)"
+if [ -z "$before" ] || [ "$before" = '--' ]; then
+    printf 'none\t\n'
+    exit 0
+fi
+
+probe() {
+    url="$1"
+    expected="$2"
+    mode="$3"
+
+    headers="$(mktemp)"
+    body="$(mktemp)"
+
+    code="$(
+        curl --noproxy '*' --interface "$dev"             -sS --connect-timeout 2 --max-time 5             -D "$headers" -o "$body" -w '%{http_code}' "$url"             2>/dev/null || true
+    )"
+
+    after="$(nmcli -g GENERAL.CONNECTION device show "$dev" 2>/dev/null | head -n1)"
+    if [ -z "$after" ] || [ "$before" != "$after" ]; then
+        rm -f "$headers" "$body"
+        printf 'none\t\n'
+        return 10
+    fi
+
+    loc="$(
+        sed -n 's/^[Ll]ocation:[[:space:]]*//p' "$headers" |
+            tr -d '\r' |
+            head -n1
+    )"
+
+    case "$code" in
+        301|302|303|307|308|511)
+            case "$loc" in
+                http://*|https://*) target="$loc" ;;
+                *) target="$url" ;;
+            esac
+            rm -f "$headers" "$body"
+            printf 'portal\t%s\n' "$target"
+            return 0
+            ;;
+        200)
+            if [ "$mode" = body ] && [ "$(cat "$body")" = "$expected" ]; then
+                rm -f "$headers" "$body"
+                printf 'full\t\n'
+                return 0
+            fi
+
+            if [ "$mode" = code204 ]; then
+                size="$(wc -c <"$body")"
+                if [ "$size" -gt 0 ]; then
+                    rm -f "$headers" "$body"
+                    printf 'portal\t%s\n' "$url"
+                    return 0
+                fi
+            else
+                rm -f "$headers" "$body"
+                printf 'portal\t%s\n' "$url"
+                return 0
+            fi
+            ;;
+        204)
+            if [ "$mode" = code204 ]; then
+                rm -f "$headers" "$body"
+                printf 'full\t\n'
+                return 0
+            fi
+            ;;
+    esac
+
+    rm -f "$headers" "$body"
+    return 1
+}
+
+result="$(probe "$nm_probe" 'NetworkManager is online' body)"
+rc=$?
+if [ "$rc" -eq 10 ]; then
+    printf '%s' "$result"
+    exit 0
+fi
+if [ "$rc" -eq 0 ]; then
+    printf '%s' "$result"
+    exit 0
+fi
+
+result="$(probe "$google_probe" '' code204)"
+rc=$?
+if [ "$rc" -eq 10 ]; then
+    printf '%s' "$result"
+    exit 0
+fi
+if [ "$rc" -eq 0 ]; then
+    printf '%s' "$result"
+    exit 0
+fi
+
+cached="$(nmcli networking connectivity 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+case "$cached" in
+    portal) printf 'portal\t%s\n' "$nm_probe" ;;
+    limited) printf 'limited\t\n' ;;
+    *) printf 'offline\t\n' ;;
+esac

@@ -1,10 +1,10 @@
 {
   "name": "CaptivePortal",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "dcqwqc",
   "homepage": "https://github.com/dcqwqc/CaelestiaPlugin-CaptivePortal",
   "icon": "wifi_password",
-  "description": "Detect captive or limited Wi-Fi connectivity and expose a Sign in to Wi-Fi action inside Caelestia's network flyout.",
+  "description": "Detect real captive Wi-Fi portals and open the network-provided sign-in page inside Caelestia's network flyout.",
   "entryPoints": [
     {
       "type": "custom",

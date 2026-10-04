@@ -1,10 +1,10 @@
 import Caelestia.Plugins
 
 SettingsObject {
-    property bool showWhenLimited: true
+    property bool showWhenLimited: false
     SettingMeta on showWhenLimited {
-        label: "Show on limited Wi-Fi"
-        description: "Also show the sign-in action when NetworkManager reports limited connectivity instead of an explicit captive portal."
+        label: "Show on ambiguous limited Wi-Fi"
+        description: "Optional fallback for networks that report limited connectivity without a confirmed captive-portal redirect. Off by default to avoid false sign-in prompts."
         icon: "signal_wifi_bad"
         inputType: SettingMeta.Switch
     }
@@ -12,7 +12,7 @@ SettingsObject {
     property bool alwaysShow: false
     SettingMeta on alwaysShow {
         label: "Always show action"
-        description: "Keep the Wi-Fi sign-in action visible whenever a Wi-Fi network is connected."
+        description: "Keep the Wi-Fi sign-in action visible whenever a Wi-Fi network is connected, even without a detected portal."
         icon: "visibility"
         inputType: SettingMeta.Switch
     }
@@ -20,7 +20,7 @@ SettingsObject {
     property int checkIntervalSeconds: 5
     SettingMeta on checkIntervalSeconds {
         label: "Portal check interval"
-        description: "Seconds between NetworkManager captive-portal checks while the network flyout is open."
+        description: "Seconds between captive-portal checks while the network flyout is open."
         icon: "timer"
         inputType: SettingMeta.SpinBox
         min: 2

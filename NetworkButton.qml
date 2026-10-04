@@ -14,14 +14,15 @@ StyledRect {
 
     required property var settings
 
-    property string connectivity: "unknown"
+    property string connectivity: "none"
+    property string portalUrl: ""
+    property bool wifiConnected: false
 
     readonly property bool mounted: width > 1
-    readonly property bool activeWifi: Nmcli.wifiEnabled && [...Nmcli.networks].some(network => network.active)
-    readonly property bool showWhenLimited: settings ? settings.showWhenLimited : true
+    readonly property bool showWhenLimited: settings ? settings.showWhenLimited : false
     readonly property bool alwaysShow: settings ? settings.alwaysShow : false
     readonly property int checkIntervalSeconds: settings ? settings.checkIntervalSeconds : 5
-    readonly property bool shouldShow: activeWifi && (
+    readonly property bool shouldShow: wifiConnected && (
         connectivity === "portal"
         || (showWhenLimited && connectivity === "limited")
         || alwaysShow
@@ -35,8 +36,10 @@ StyledRect {
     color: Colours.palette.m3primaryContainer
 
     function checkNow(): void {
-        if (!mounted || !activeWifi) {
+        if (!mounted) {
             connectivity = "none";
+            portalUrl = "";
+            wifiConnected = false;
             return;
         }
 
@@ -45,8 +48,14 @@ StyledRect {
     }
 
     function openPortal(): void {
-        // Deliberately plain HTTP so a captive network can redirect to its login page.
-        Quickshell.execDetached(["xdg-open", "http://neverssl.com"]);
+        if (!wifiConnected)
+            return;
+
+        const target = portalUrl.length > 0
+            ? portalUrl
+            : "http://ping.archlinux.org/nm-check.txt";
+
+        Quickshell.execDetached(["xdg-open", target]);
         checkDelay.restart();
     }
 
@@ -85,20 +94,22 @@ StyledRect {
     Process {
         id: connectivityCheck
 
-        // Forcing a NetworkManager connectivity recheck may require Polkit.
-        // Use an unprivileged HTTP 204 probe and cached NetworkManager state as fallback.
         command: ["sh", "-c",
-            "if command -v curl >/dev/null 2>&1; then " +
-            "code=$(curl -sS --connect-timeout 2 --max-time 4 -o /dev/null -w '%{http_code}' http://connectivitycheck.gstatic.com/generate_204 2>/dev/null || true); " +
-            "case $code in 204) printf full;; 000|'') nmcli networking connectivity 2>/dev/null || printf unknown;; *) printf portal;; esac; " +
-            "else nmcli networking connectivity 2>/dev/null || printf unknown; fi"]
+            "$HOME/.local/share/caelestia/plugins/captive-portal/scripts/captive-portal-check"
+        ]
 
         stdout: StdioCollector {
             onStreamFinished: {
-                const state = text.trim().toLowerCase();
-                root.connectivity = ["none", "portal", "limited", "full", "unknown"].includes(state)
-                    ? state
-                    : "unknown";
+                const raw = text.trim();
+                const fields = raw.split("\t");
+                const state = fields[0] || "unknown";
+                const valid = ["none", "portal", "limited", "full", "offline", "unknown"];
+
+                root.connectivity = valid.includes(state) ? state : "unknown";
+                root.wifiConnected = root.connectivity !== "none";
+                root.portalUrl = root.connectivity === "portal" && fields.length > 1
+                    ? fields.slice(1).join("\t").trim()
+                    : "";
             }
         }
     }
@@ -107,7 +118,7 @@ StyledRect {
         interval: Math.max(2, root.checkIntervalSeconds) * 1000
         repeat: true
         triggeredOnStart: true
-        running: root.mounted && root.activeWifi
+        running: root.mounted
         onTriggered: root.checkNow()
     }
 
@@ -125,6 +136,16 @@ StyledRect {
         }
         function onWifiEnabledChanged(): void {
             root.checkNow();
+        }
+    }
+
+    onMountedChanged: {
+        if (mounted)
+            checkNow();
+        else {
+            connectivity = "none";
+            portalUrl = "";
+            wifiConnected = false;
         }
     }
 }
