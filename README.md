@@ -17,6 +17,9 @@ Adds a **Sign in to Wi-Fi** action to Caelestia's network flyout only when a con
 - Limited-connectivity fallback visibility is disabled by default to prevent phantom sign-in buttons.
 - Never uses NeverSSL as the login destination.
 
+- Portal checks run in parallel so detection finishes in a few seconds even when several endpoints time out.
+- Clicking an unknown portal retries discovery in the background and never opens example.com, NeverSSL, or a connectivity-test page as a fallback.
+
 ## Install
 
     git clone https://github.com/dcqwqc/CaelestiaPlugin-CaptivePortal.git

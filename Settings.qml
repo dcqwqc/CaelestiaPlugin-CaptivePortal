@@ -17,7 +17,7 @@ SettingsObject {
         inputType: SettingMeta.Switch
     }
 
-    property int checkIntervalSeconds: 5
+    property int checkIntervalSeconds: 3
     SettingMeta on checkIntervalSeconds {
         label: "Portal check interval"
         description: "Seconds between captive-portal checks while the network flyout is open."
