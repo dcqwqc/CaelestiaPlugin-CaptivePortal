@@ -65,7 +65,7 @@ StyledRect {
         // initially return a connectivity-check URL and only expose the real
         // splash-page redirect a moment later. The helper avoids showing that
         // blank intermediate page in the browser.
-        Quickshell.execDetached([root.portalOpener, target]);
+        Quickshell.execDetached(["/usr/bin/bash", root.portalOpener, target]);
         checkDelay.restart();
     }
 

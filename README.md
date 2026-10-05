@@ -20,6 +20,8 @@ Adds a **Sign in to Wi-Fi** action to Caelestia's network flyout only when a con
 - Portal checks run in parallel so detection finishes in a few seconds even when several endpoints time out.
 - Clicking an unknown portal retries discovery in the background and never opens example.com, NeverSSL, or a connectivity-test page as a fallback.
 
+- Portal clicks use Zen directly on Mirai, log their result, and use REWE's own plain-HTTP site as the REWE-specific browser trigger if no direct redirect is exposed.
+
 ## Install
 
     git clone https://github.com/dcqwqc/CaelestiaPlugin-CaptivePortal.git
