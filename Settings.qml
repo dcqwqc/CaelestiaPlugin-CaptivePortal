@@ -1,6 +1,14 @@
 import Caelestia.Plugins
 
 SettingsObject {
+    property bool showOnOpenWifi: true
+    SettingMeta on showOnOpenWifi {
+        label: "Show on open Wi-Fi"
+        description: "Always expose the sign-in action on connected open/public Wi-Fi. The button still opens only a verified captive-portal page."
+        icon: "wifi"
+        inputType: SettingMeta.Switch
+    }
+
     property bool showWhenLimited: false
     SettingMeta on showWhenLimited {
         label: "Show on ambiguous limited Wi-Fi"

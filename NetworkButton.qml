@@ -20,13 +20,19 @@ StyledRect {
 
     readonly property string portalOpener: `${Quickshell.env("HOME")}/.local/share/caelestia/plugins/captive-portal/scripts/open-captive-portal`
 
+    readonly property var activeWifi: Nmcli.active
+    readonly property bool activeWifiConnected: activeWifi !== null
+    readonly property bool activeWifiOpen: activeWifiConnected && !activeWifi.isSecure
+
     readonly property bool mounted: width > 1
     readonly property bool showWhenLimited: settings ? settings.showWhenLimited : false
+    readonly property bool showOnOpenWifi: settings ? settings.showOnOpenWifi : true
     readonly property bool alwaysShow: settings ? settings.alwaysShow : false
-    readonly property int checkIntervalSeconds: settings ? settings.checkIntervalSeconds : 5
-    readonly property bool shouldShow: wifiConnected && (
+    readonly property int checkIntervalSeconds: settings ? settings.checkIntervalSeconds : 3
+    readonly property bool shouldShow: activeWifiConnected && (
         connectivity === "portal"
         || (showWhenLimited && connectivity === "limited")
+        || (showOnOpenWifi && activeWifiOpen)
         || alwaysShow
     )
 
@@ -50,7 +56,7 @@ StyledRect {
     }
 
     function openPortal(): void {
-        if (!wifiConnected)
+        if (!activeWifiConnected)
             return;
 
         const target = portalUrl.length > 0 ? portalUrl : "";
