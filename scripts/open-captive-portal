@@ -42,7 +42,7 @@ ssid="$(nmcli -t -f ACTIVE,SSID dev wifi 2>/dev/null | sed -n 's/^yes://p' | hea
     exit 0
 }
 
-log "click: ssid=$ssid connection=$connection candidate=${candidate:-<none>}"
+log "click: connected Wi-Fi; cached candidate present=$([[ -n "$candidate" ]] && echo yes || echo no)"
 
 still_connected() {
     [[ "$(nmcli -g GENERAL.CONNECTION device show "$dev" 2>/dev/null | head -n1)" == "$connection" ]]
@@ -68,11 +68,23 @@ is_probe_url() {
 
 open_target() {
     local target="$1"
-    log "open: target=$target"
+    log "open: captive login requested"
 
     if [[ "$print_only" -eq 1 ]]; then
         printf '%s\n' "$target"
         exit 0
+    fi
+
+    # Prefer the isolated Wi-Fi-only browser even when USB/Ethernet is the
+    # default route. This changes no routing, DNS or browser user preferences.
+    # If the isolated browser cannot start, keep the existing Zen fallback.
+    portal_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    if command -v python3 >/dev/null 2>&1 && [[ -f "$portal_root/portal_helper.py" ]]; then
+        if python3 "$portal_root/portal_helper.py" browser "$target" "$dev" >/dev/null 2>&1; then
+            log "open: isolated Wi-Fi-bound browser launched"
+            exit 0
+        fi
+        log "open: isolated browser not available; falling back to normal browser"
     fi
 
     # Zen is installed as a Flatpak on Mirai. Launch it directly so opening a
@@ -103,10 +115,8 @@ open_target() {
     exit 1
 }
 
-# A concrete captive URL from the detector wins immediately.
-if [[ "$candidate" =~ ^https?:// ]] && ! is_probe_url "$candidate"; then
-    open_target "$candidate"
-fi
+# Never immediately reuse the earlier probe's session challenge.
+# A fresh click-time redirect takes priority; cached URL is a last fallback.
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -154,7 +164,7 @@ discover_once() {
 
 target="$(discover_once || true)"
 if [[ -n "$target" ]]; then
-    log "discovery: direct portal=$target"
+    log "discovery: fresh portal URL found"
     open_target "$target"
 fi
 
@@ -179,10 +189,30 @@ for _attempt in 1 2 3; do
     still_connected || exit 0
     target="$(discover_once || true)"
     if [[ -n "$target" ]]; then
-        log "discovery: retry portal=$target"
+        log "discovery: fresh portal URL found on retry"
         open_target "$target"
     fi
 done
+
+# If the captive service never redirects (or DNS is broken), reach its
+# directly connected local DHCP gateway. This also works when Wi-Fi is the
+# only internet-capable interface. It is a Wi-Fi subnet URL, not a public
+# server name resolved using the USB DNS.
+gateway="$(nmcli -g IP4.GATEWAY device show "$dev" 2>/dev/null | head -n1)"
+if [[ "$gateway" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    route_dev="$(ip -4 route get "$gateway" 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n1)"
+    if [[ "$route_dev" == "$dev" ]]; then
+        log "discovery: using connected Wi-Fi gateway as safe fallback"
+        open_target "http://$gateway/"
+    fi
+fi
+
+# A detected RFC 8910 / captive redirect remains useful if the gateway was
+# unavailable. Prefer this over opening an unrelated public test page.
+if [[ "$candidate" =~ ^https?:// ]] && ! is_probe_url "$candidate"; then
+    log "discovery: using cached portal URL as last fallback"
+    open_target "$candidate"
+fi
 
 log "discovery: portal URL not found"
 if [[ "$print_only" -eq 1 ]]; then

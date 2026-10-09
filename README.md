@@ -29,3 +29,29 @@ Adds a **Sign in to Wi-Fi** action to Caelestia's network flyout only when a con
     ./install.sh
 
 The companion Caelestia shell integration consumes the plugin entry point with slot networkPortal inside modules/bar/popouts/Network.qml.
+
+## Wi-Fi-bound sign-in browser (0.5.2)
+
+When the sign-in button is clicked, the existing detector still discovers a **fresh** login URL from the connected Wi-Fi. The opener now prefers a separate Zen/Firefox browser profile (Chromium fallback) with a temporary localhost proxy whose outbound sockets and DNS queries are **bound to that Wi-Fi interface**. This is especially important when USB tethering or Ethernet has the working default route.
+
+- No NetworkManager profile changes, no privileged route edits, no disruption of tethering, and no changes to the user's normal browser tabs or proxy preferences.
+- The isolated browser works with Mirai's Zen Flatpak (temporary profile permission) as well as host-installed Zen/Firefox/Chromium.
+- If an HTTP redirect isn't discoverable, the opener can use the Wi-Fi DHCP gateway as a safe local fallback. An old portal challenge is only a final fallback, never the first choice.
+- The isolated proxy only listens on 127.0.0.1 and is shut down when the sign-in browser closes or after ten minutes. HTTPS is tunneled end-to-end without TLS interception.
+- If the isolated browser cannot start, the previous Zen/GIO launcher remains available as a fallback.
+
+**Read-only diagnostics**, while connected to the Wi-Fi network:
+
+```bash
+python3 ~/.local/share/caelestia/plugins/captive-portal/portal_helper.py diagnose
+```
+
+The output distinguishes Wi-Fi DHCP failures, unreachable gateways, detected captive redirects, and missing public connectivity. It may contain your login-session URL and device identifiers; redact these before sharing logs.
+
+**Run offline tests** from the plugin repository:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+A failed onboard hotspot or a train with no uplink cannot be repaired by the plugin; the isolated browser only ensures the sign-in traffic uses the intended Wi-Fi network.
