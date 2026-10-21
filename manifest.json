@@ -14,5 +14,6 @@
       }
     }
   ],
-  "settings": "Settings.qml"
+  "settings": "Settings.qml",
+  "requires": ">=2.1.0"
 }
